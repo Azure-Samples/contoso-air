@@ -7,7 +7,7 @@
   },
   "dependencies": {
     "@azure/identity": "^4.8.0",
-    "axios": "^1.8.3",
+    "axios": "^1.8.4",
     "bootstrap": "^5.3.3",
     "bootstrap-datepicker": "^1.10.0",
     "cookie-parser": "~1.4.4",
