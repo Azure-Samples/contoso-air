@@ -14,7 +14,7 @@
     "debug": "~4.4.0",
     "express": "^5.1.0",
     "express-flash": "^0.0.2",
-    "express-handlebars": "^8.0.2",
+    "express-handlebars": "^8.0.3",
     "express-prom-bundle": "^8.0.0",
     "express-session": "^1.18.0",
     "hbs": "^4.2.0",
