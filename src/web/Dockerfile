@@ -31,6 +31,7 @@ FROM node:${NODE_VERSION}-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production \
     PORT=${APP_PORT} \
+    HOSTNAME=0.0.0.0 \
     NEXT_TELEMETRY_DISABLED=1
 
 # Add non-root user
