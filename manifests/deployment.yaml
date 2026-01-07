@@ -37,7 +37,7 @@ spec:
                 name: secret-ref
                 optional: true
             - secretRef:
-                name: sc-aiserviced2991-secret
+                name: sc-openaib974b-secret
           livenessProbe:
             tcpSocket:
               port: 3000
