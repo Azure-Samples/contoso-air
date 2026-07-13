@@ -44,12 +44,18 @@ const detectProvider = (): Provider => {
 const sseStream = (producer: (emit: (token: string) => void) => Promise<void>) => new ReadableStream<Uint8Array>({
   async start(controller) {
     const enc = new TextEncoder();
-    const emit = (t: string) => controller.enqueue(enc.encode(`data: ${t}\n\n`));
+    const emit = (t: string) =>
+      controller.enqueue(
+        enc.encode(`data: ${JSON.stringify({ type: "token", value: t })}\n\n`)
+      );
     try {
       await producer(emit);
-      emit("[DONE]");
+      controller.enqueue(enc.encode('data: {"type":"done"}\n\n'));
     } catch (e) {
-      emit(`[ERROR] ${e instanceof Error ? e.message : e}`);
+      const message = e instanceof Error ? e.message : String(e);
+      controller.enqueue(
+        enc.encode(`data: ${JSON.stringify({ type: "error", message })}\n\n`)
+      );
     } finally {
       controller.close();
     }

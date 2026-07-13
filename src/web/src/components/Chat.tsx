@@ -51,7 +51,6 @@ const Chat: React.FC<ChatProps> = ({
   ]);
   const [input, setInput] = useState("");
   const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [thinkingId, setThinkingId] = useState<string | null>(null);
   const thinkingRef = useRef<string | null>(null);
   useEffect(() => {
@@ -82,97 +81,6 @@ const Chat: React.FC<ChatProps> = ({
     if (!el) return;
     el.scrollTop = el.scrollHeight;
   }, [messages]);
-
-  const handleSend = useCallback(async () => {
-    const trimmed = input.trim();
-    if (!trimmed || pending) return;
-    setInput("");
-    setError(null);
-    setPending(true);
-
-    const userMsg: ChatMessage = {
-      id: uuid(),
-      role: "user",
-      content: trimmed,
-      createdAt: Date.now(),
-    };
-
-    const newHistory = [...messages, userMsg];
-    setMessages(newHistory);
-
-    try {
-      // Create a placeholder assistant bubble that will show the thinking state
-      const assistantId = uuid();
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: assistantId,
-          role: "assistant",
-          content: "Thinking", // animation hook will append dots
-          createdAt: Date.now(),
-        },
-      ]);
-      setThinkingId(assistantId);
-
-      try {
-        let firstToken = true;
-        await streamChat(newHistory, (delta) => {
-          if (firstToken) {
-            firstToken = false;
-            // stop animation before showing first token
-            setThinkingId(null);
-            setMessages((prev) =>
-              prev.map((m) =>
-                m.id === assistantId ? { ...m, content: delta } : m
-              )
-            );
-          } else {
-            setMessages((prev) =>
-              prev.map((m) =>
-                m.id === assistantId ? { ...m, content: m.content + delta } : m
-              )
-            );
-          }
-          // incremental scroll during streaming
-          if (listRef.current) {
-            listRef.current.scrollTop = listRef.current.scrollHeight;
-          }
-        });
-        // content accumulated in place
-        setMessages((prev) => prev);
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : "Streaming failed";
-        setError(msg);
-        setMessages((prev) => [
-          ...prev.filter((m) => m.id !== assistantId),
-          {
-            id: uuid(),
-            role: "error",
-            content: msg
-              ? `Sorry, streaming failed: ${msg}`
-              : "Sorry, streaming failed.",
-            createdAt: Date.now(),
-          },
-        ]);
-        setThinkingId(null);
-      }
-    } catch {
-      setError("Failed to get response. Try again.");
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: uuid(),
-          role: "error",
-          content: "Sorry, something went wrong.",
-          createdAt: Date.now(),
-        },
-      ]);
-    } finally {
-      setPending(false);
-      setThinkingId(null);
-      inputRef.current?.focus();
-    }
-  }, [input, pending, messages]);
 
   // Stream chat response from server. Provider selection is handled server-side via CHAT_PROVIDER env.
   async function streamChat(
@@ -214,27 +122,139 @@ const Chat: React.FC<ChatProps> = ({
       const { value, done } = await reader.read();
       if (done) break;
       buf += dec.decode(value, { stream: true });
-      const parts = buf.split(/\n\n/);
+      const parts = buf.split(/\r?\n\r?\n/);
       buf = parts.pop() || "";
       for (const evt of parts) {
-        const line = evt.replace(/\r?$/, "");
-        if (!line.startsWith("data:")) continue;
-        let payload = line.slice(5); // remove 'data:' prefix (no space)
-        if (payload.startsWith(" ")) payload = payload.slice(1); // drop single protocol space if present
-        // Detect control signals using a trimmed copy, but DO NOT mutate the original payload used for display
-        const control = payload.trim();
-        if (control === "[DONE]") return full;
-        if (control.startsWith("[ERROR]")) {
-          throw new Error(control.slice(7).trim() || "remote error");
+        const payload = evt
+          .split(/\r?\n/)
+          .filter((line) => line.startsWith("data:"))
+          .map((line) => {
+            let data = line.slice(5); // remove 'data:' prefix
+            if (data.startsWith(" ")) data = data.slice(1);
+            return data;
+          })
+          .join("\n");
+        if (!payload) continue;
+        const parsed = JSON.parse(payload) as {
+          type?: "token" | "done" | "error";
+          value?: string;
+          message?: string;
+        };
+        if (parsed.type === "done") return full;
+        if (parsed.type === "error") {
+          throw new Error(parsed.message || "remote error");
         }
-        // Skip only truly empty payloads (not whitespace) so spaces between words remain
-        if (payload === "") continue;
-        full += payload;
-        onDelta(payload);
+        if (parsed.type === "token" && parsed.value) {
+          full += parsed.value;
+          onDelta(parsed.value);
+        }
       }
     }
     return full;
   }
+
+  const cleanupAssistantText = (text: string) =>
+    text
+      .replace(/([a-z0-9,])([A-Z])/g, "$1 $2")
+      .replace(/\n{2,}(?=\s*(?:[-*•]|\d+[.)])\s)/g, "\n")
+      .replace(
+        /(\n\s*(?:[-*•]|\d+[.)])\s[^\n]+)\n\n(?=\s*(?:[-*•]|\d+[.)])\s)/g,
+        "$1\n"
+      )
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+
+  const handleSend = useCallback(async () => {
+    const trimmed = input.trim();
+    if (!trimmed || pending) return;
+    setInput("");
+    setPending(true);
+
+    const userMsg: ChatMessage = {
+      id: uuid(),
+      role: "user",
+      content: trimmed,
+      createdAt: Date.now(),
+    };
+
+    const newHistory = [...messages, userMsg];
+    setMessages(newHistory);
+
+    try {
+      // Create a placeholder assistant bubble that will show the thinking state
+      const assistantId = uuid();
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: assistantId,
+          role: "assistant",
+          content: "Thinking", // animation hook will append dots
+          createdAt: Date.now(),
+        },
+      ]);
+      setThinkingId(assistantId);
+
+      try {
+        let firstToken = true;
+        const finalText = await streamChat(newHistory, (delta) => {
+          if (firstToken) {
+            firstToken = false;
+            // stop animation before showing first token
+            setThinkingId(null);
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === assistantId ? { ...m, content: delta } : m
+              )
+            );
+          } else {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === assistantId ? { ...m, content: m.content + delta } : m
+              )
+            );
+          }
+          // incremental scroll during streaming
+          if (listRef.current) {
+            listRef.current.scrollTop = listRef.current.scrollHeight;
+          }
+        });
+        const cleaned = cleanupAssistantText(finalText);
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === assistantId ? { ...m, content: cleaned || m.content } : m
+          )
+        );
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "Streaming failed";
+        setMessages((prev) => [
+          ...prev.filter((m) => m.id !== assistantId),
+          {
+            id: uuid(),
+            role: "error",
+            content: msg
+              ? `Sorry, streaming failed: ${msg}`
+              : "Sorry, streaming failed.",
+            createdAt: Date.now(),
+          },
+        ]);
+        setThinkingId(null);
+      }
+    } catch {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: uuid(),
+          role: "error",
+          content: "Sorry, something went wrong.",
+          createdAt: Date.now(),
+        },
+      ]);
+    } finally {
+      setPending(false);
+      setThinkingId(null);
+      inputRef.current?.focus();
+    }
+  }, [input, pending, messages]);
 
   const handleKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -283,7 +303,6 @@ const Chat: React.FC<ChatProps> = ({
         createdAt: Date.now() + 1,
       },
     ]);
-    setError(null);
     setPending(false);
     setInput("");
   }, [systemPrompt]);
@@ -416,7 +435,7 @@ const MessageBubble: React.FC<{ message: ChatMessage }> = ({ message }) => {
       <div className="flex items-start gap-2">
         <Avatar />
         <div
-          className={`${base} prose prose-invert prose-p:my-2 prose-ul:my-2 prose-li:my-0 marker:text-cyan-300 bg-white/5 text-white/90 ring-1 ring-white/10`}
+          className={`${base} bg-white/5 text-white/90 ring-1 ring-white/10`}
         >
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
@@ -443,22 +462,40 @@ const MessageBubble: React.FC<{ message: ChatMessage }> = ({ message }) => {
                   </pre>
                 );
               },
-              p({ children }) {
+              p(nodeProps) {
+                const { children, node } = nodeProps as unknown as {
+                  children: React.ReactNode;
+                  node?: { parent?: { tagName?: string } };
+                };
+                const inListItem = node?.parent?.tagName === "li";
                 return (
-                  <p className="mb-2 last:mb-0 leading-relaxed">{children}</p>
+                  <p
+                    className={
+                      inListItem
+                        ? "m-0 leading-snug"
+                        : "mb-2 last:mb-0 leading-relaxed"
+                    }
+                  >
+                    {children}
+                  </p>
                 );
               },
               ul({ children }) {
                 return (
-                  <ul className="list-disc pl-5 mb-2 space-y-1">{children}</ul>
+                  <ul className="list-disc pl-5 mb-1 mt-0 space-y-0 marker:text-cyan-300">
+                    {children}
+                  </ul>
                 );
               },
               ol({ children }) {
                 return (
-                  <ol className="list-decimal pl-5 mb-2 space-y-1">
+                  <ol className="list-decimal pl-5 mb-1 mt-0 space-y-0 marker:text-cyan-300">
                     {children}
                   </ol>
                 );
+              },
+              li({ children }) {
+                return <li className="m-0 leading-snug [&>p]:m-0">{children}</li>;
               },
               a({ children, href }) {
                 return (

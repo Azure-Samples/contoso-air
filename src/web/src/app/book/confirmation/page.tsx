@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { Flight, BookingDetail } from "@/types/flight";
 import { hashSeat } from "@/utils/mockBookingGenerator";
@@ -15,39 +15,40 @@ function formatTime(iso: string) {
 const ConfirmationPage = () => {
   const router = useRouter();
   const { isAuthenticated, loading: authLoading, user } = useAuth();
-  const [persisted, setPersisted] = useState<BookingDetail | null>(null);
-  const [loaded, setLoaded] = useState(false);
+  const persisted = useMemo<BookingDetail | null>(() => {
+    try {
+      const raw =
+        typeof window !== "undefined"
+          ? window.localStorage.getItem("bookings")
+          : null;
+      if (!raw) return null;
+      const arr = JSON.parse(raw) as unknown;
+      if (!Array.isArray(arr)) return null;
+      const candidate = arr.filter((b): b is BookingDetail => {
+        return (
+          b &&
+          typeof b === "object" &&
+          "ref" in b &&
+          "outboundFlight" in b &&
+          "fromAirport" in b
+        );
+      });
+      const filtered = user
+        ? candidate.filter((b) => b.user?.username === user.username)
+        : candidate;
+      if (!filtered.length) return null;
+      filtered.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+      return filtered[0];
+    } catch {
+      return null;
+    }
+  }, [user]);
 
   useEffect(() => {
     try {
-      const raw = window.localStorage.getItem("bookings");
-      if (raw) {
-        try {
-          const arr = JSON.parse(raw) as unknown;
-          if (Array.isArray(arr)) {
-            const candidate = arr.filter((b): b is BookingDetail => {
-              return (
-                b &&
-                typeof b === "object" &&
-                "ref" in b &&
-                "outboundFlight" in b &&
-                "fromAirport" in b
-              );
-            });
-            const filtered = user
-              ? candidate.filter((b) => b.user?.username === user.username)
-              : candidate;
-            if (filtered.length) {
-              filtered.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-              setPersisted(filtered[0]);
-            }
-          }
-        } catch {}
-      }
       window.localStorage.removeItem("bookingSelection");
     } catch {}
-    setLoaded(true);
-  }, [user]);
+  }, []);
   const passengers = persisted?.passengers || 1;
 
   // Use persisted flights if available; otherwise fallback to context
@@ -61,7 +62,7 @@ const ConfirmationPage = () => {
       (displayInbound ? displayInbound.price : 0)) *
       passengers;
 
-  if (authLoading || (!loaded && !displayOutbound)) {
+  if (authLoading) {
     return <p className="p-6 text-sm text-gray-500">Loading booking...</p>;
   }
   if (!isAuthenticated) {

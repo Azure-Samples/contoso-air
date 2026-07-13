@@ -71,13 +71,13 @@ AOAI_ID=$(az cognitiveservices account create \
 --assign-identity \
 --query id -o tsv)
 
-# deploy gpt-4.1-mini model
+# deploy gpt-5.4-mini model
 az cognitiveservices account deployment create \
 -n $AOAI_NAME \
 -g $RG_NAME \
---deployment-name gpt-4.1-mini \
---model-name gpt-4.1-mini \
---model-version 2025-04-14 \
+--deployment-name gpt-5.4-mini \
+--model-name gpt-5.4-mini \
+--model-version 2026-03-17 \
 --model-format OpenAI \
 --sku-capacity 200 \
 --sku-name GlobalStandard
@@ -116,8 +116,8 @@ cat <<EOF > .env.local
 CHAT_PROVIDER=azure
 AZURE_OPENAI_ENDPOINT=$(az cognitiveservices account show -n $AOAI_NAME -g $RG_NAME --query properties.endpoint -o tsv)
 AZURE_OPENAI_CLIENTID=$(az identity show --ids $MI_ID --query clientId -o tsv)
-AZURE_OPENAI_DEPLOYMENT=gpt-4.1-mini
-AZURE_OPENAI_API_VERSION=2024-12-01-preview
+AZURE_OPENAI_DEPLOYMENT=gpt-5.4-mini
+AZURE_OPENAI_API_VERSION=2025-01-01-preview
 EOF
 ```
 

@@ -3,8 +3,6 @@ import React, {
   createContext,
   useCallback,
   useContext,
-  useEffect,
-  useRef,
   useState,
   ReactNode,
 } from "react";
@@ -28,26 +26,20 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 const STORAGE_KEY = "authSession";
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<AuthUser | null>(null);
-  const [loading, setLoading] = useState(true);
-  const initRef = useRef(false);
-
-  useEffect(() => {
-    if (initRef.current) return;
-    initRef.current = true;
+  const [user, setUser] = useState<AuthUser | null>(() => {
     try {
       const raw =
         typeof window !== "undefined"
           ? localStorage.getItem(STORAGE_KEY)
           : null;
-      if (raw) {
-        const parsed: AuthUser | null = JSON.parse(raw);
-        if (parsed && parsed.username) setUser(parsed);
-      }
-    } catch {}
-    const t = setTimeout(() => setLoading(false), 0);
-    return () => clearTimeout(t);
-  }, []);
+      if (!raw) return null;
+      const parsed: AuthUser | null = JSON.parse(raw);
+      return parsed && parsed.username ? parsed : null;
+    } catch {
+      return null;
+    }
+  });
+  const loading = false;
 
   const login = useCallback(async (username: string, _password: string) => {
     // Mark _password as intentionally unused (auth is mocked)

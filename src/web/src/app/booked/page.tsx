@@ -1,13 +1,11 @@
 "use client";
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import { useRouter } from "next/navigation";
 import BookingSegment from "@/components/BookingSegment";
 import { BookingDetail } from "@/types/flight";
 
 const BookedPage = () => {
-  const [bookings, setBookings] = useState<BookingDetail[]>([]);
-  const [loaded, setLoaded] = useState(false);
   const { isAuthenticated, loading: authLoading, user } = useAuth();
   const router = useRouter();
 
@@ -23,26 +21,27 @@ const BookedPage = () => {
     }
   }, [isAuthenticated, authLoading, router]);
 
-  useEffect(() => {
+  const [bookings] = useState<BookingDetail[]>(() => {
     try {
-      const raw = window.localStorage.getItem("bookings");
-      if (raw) {
-        const arr = JSON.parse(raw);
-        if (Array.isArray(arr)) {
-          const filtered = arr.filter(
-            (b): b is BookingDetail =>
-              b &&
-              typeof b === "object" &&
-              "ref" in b &&
-              "outboundFlight" in b &&
-              "fromAirport" in b
-          );
-          setBookings(filtered);
-        }
-      }
-    } catch {}
-    setLoaded(true);
-  }, []);
+      const raw =
+        typeof window !== "undefined"
+          ? window.localStorage.getItem("bookings")
+          : null;
+      if (!raw) return [];
+      const arr = JSON.parse(raw);
+      if (!Array.isArray(arr)) return [];
+      return arr.filter(
+        (b): b is BookingDetail =>
+          b &&
+          typeof b === "object" &&
+          "ref" in b &&
+          "outboundFlight" in b &&
+          "fromAirport" in b
+      );
+    } catch {
+      return [];
+    }
+  });
 
   const mine = useMemo(() => {
     if (!user) return [] as BookingDetail[];
@@ -54,7 +53,7 @@ const BookedPage = () => {
     [mine]
   );
 
-  if (!loaded || authLoading) {
+  if (authLoading) {
     return (
       <section className="w-full md:pt-16 pb-4 md:pb-10 px-5 sm:px-8">
         <div className="max-w-6xl mx-auto mb-6">
